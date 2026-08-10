@@ -335,18 +335,22 @@ def crawl_historical_archive(
     s: requests.Session,
     cutoff: datetime,
     first_year: int = 2013,
-    max_pages_per_year: int = 20,
+    max_pages_per_year: int = 50,
 ) -> list[dict]:
     """
     Crawl Desiring God's official yearly Interview archives. These archive cards
     explicitly label APJ resources as "Ask Pastor John", including special
     episodes. Only resources older than the current RSS window are returned.
+
+    Important: a page can legitimately add zero historical APJ items (especially
+    in the cutoff year, where newer entries are intentionally filtered out). We
+    therefore stop only on a real 404/empty page or an actually repeated page.
     """
     out: dict[str, dict] = {}
 
     for year in range(first_year, cutoff.year + 1):
         year_seen_before = len(out)
-        empty_or_repeat = 0
+        seen_page_fingerprints: set[tuple[str, ...]] = set()
 
         for page in range(1, max_pages_per_year + 1):
             url = YEAR_ARCHIVE_URL.format(year=year, page=page)
@@ -370,7 +374,17 @@ def crawl_historical_archive(
                 if re.match(r"^/interviews/[^/?#]+/?$", a.get("href", ""))
             ]
             if not interview_links:
+                log(f"Archive {year}: page {page} is empty; year complete.")
                 break
+
+            # Guard against a site that redirects out-of-range pagination back
+            # to the final page. This detects a genuine repeated page without
+            # confusing a valid page that simply contributes zero OLD APJ items.
+            fingerprint = tuple(sorted({clean_slug(a.get("href", "")) for a in interview_links}))
+            if fingerprint in seen_page_fingerprints:
+                log(f"Archive {year}: page {page} repeats an earlier page; year complete.")
+                break
+            seen_page_fingerprints.add(fingerprint)
 
             before = len(out)
             for a in interview_links:
@@ -399,15 +413,13 @@ def crawl_historical_archive(
 
             gained = len(out) - before
             log(f"Archive {year} page {page}: +{gained} APJ (total {len(out)})")
-            if gained == 0:
-                empty_or_repeat += 1
-            else:
-                empty_or_repeat = 0
-
-            # Past the last valid page, some Rails sites redirect/repeat a page.
-            if empty_or_repeat >= 2:
-                break
             time.sleep(0.08)
+        else:
+            raise RuntimeError(
+                f"Archive {year} reached the safety limit of {max_pages_per_year} pages "
+                "without finding an end. Increase max_pages_per_year rather than publishing "
+                "a potentially incomplete archive."
+            )
 
         log(f"Archive {year}: +{len(out) - year_seen_before} APJ items")
 
