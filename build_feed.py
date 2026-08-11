@@ -844,9 +844,13 @@ def main() -> int:
         if errors:
             problem_path = catalog_path.with_name("unresolved_episodes.json")
             problem_path.write_text(json.dumps(errors, indent=2), encoding="utf-8")
-            raise RuntimeError(
-                f"{len(errors)} historical episode(s) could not be verified. "
-                f"See {problem_path}. Feed was NOT published."
+            log(
+                f"WARNING: {len(errors)} historical episode(s) could not be verified "
+                f"and will be skipped. Details saved to {problem_path}."
+            )
+            log(
+                f"Resolved historical episodes: {completed}/{len(missing)}; "
+                f"skipped unresolved: {len(errors)}."
             )
 
     count = build_output(
@@ -880,3 +884,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+   
